@@ -4,7 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::program_error::ProgramError;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
-pub enum VaultInstruct {
+pub enum VaultInstruction {
     // send sol to vault->
     // expected inputs
     // 0. [signer, writable ] :0-> buyer account
@@ -26,6 +26,41 @@ pub enum VaultInstruct {
     CloseVault {
         lottery_id: Vec<u8>,
     },
+}
+
+impl VaultInstruction {
+    /// unpck/pack to bytes
+    pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
+        let (&variant, rest) = input
+            .split_first()
+            .ok_or(ProgramError::InvalidInstructionData)?;
+
+        Ok(match variant {
+            0 => {
+                let payload = SendSolPayload::try_from_slice(rest)
+                    .map_err(|_| ProgramError::InvalidInstructionData)?;
+                Self::SendSol {
+                    amount: payload.amount,
+                    lottery_id: payload.lottery_id,
+                }
+            }
+            1 => {
+                let payload = CancelPayload::try_from_slice(rest)
+                    .map_err(|_| ProgramError::InvalidInstructionData)?;
+                Self::Cancel {
+                    lottery_id: payload.lottery_id,
+                }
+            }
+            2 => {
+                let payload = CloseVaultPayload::try_from_slice(rest)
+                    .map_err(|_| ProgramError::InvalidInstructionData)?;
+                Self::CloseVault {
+                    lottery_id: payload.lottery_id,
+                }
+            }
+            _ => return Err(ProgramError::InvalidInstructionData),
+        })
+    }
 }
 
 // helper functions for  deserialization
