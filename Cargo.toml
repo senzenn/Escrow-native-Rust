@@ -1,10 +1,8 @@
-
-
 [package]
 name = "escrow-native"
 version = "0.1.0"
 description = "Multi-signature escrow program with milestone-based releases for Grid P2P Marketplace"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Aditya <ascenzen11@gmail.com>"]
 repository = "https://github.com/yourusername/grid-escrow"
 license = "MIT"
 edition = "2021"
@@ -12,31 +10,35 @@ rust-version = "1.75.0"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "grid_escrow_program"
+name = "escrow_native"
 
 [features]
 default = []
 no-entrypoint = []
 test-sbf = []
-# Enable this for local development with more detailed errors
-dev = ["solana-program/dev"]
 
 [dependencies]
-# Solana deps 
-solana-program = "~1.18.0"
+# Solana core dependencies
+solana-program = "1.18.26"
 spl-token = { version = "4.0.0", features = ["no-entrypoint"] }
 spl-associated-token-account = { version = "2.3.0", features = ["no-entrypoint"] }
+
+# Borsh for serialization (faster than bincode for Solana)
 borsh = "1.3.0"
 borsh-derive = "1.3.0"
+
+# Thiserror for custom error handling
 thiserror = "1.0"
+
+# Optional: For more advanced features
 spl-token-2022 = { version = "1.0.0", features = ["no-entrypoint"], optional = true }
 arrayref = "0.3.7"
 num-derive = "0.4"
 num-traits = "0.2"
 
 [dev-dependencies]
-solana-program-test = "~1.18.0"
-solana-sdk = "~1.18.0"
+solana-program-test = "1.18.26"
+solana-sdk = "1.18.26"
 spl-token = { version = "4.0.0", features = ["no-entrypoint"] }
 tokio = { version = "1.36", features = ["full"] }
 assert_matches = "1.5"
@@ -45,20 +47,18 @@ assert_matches = "1.5"
 overflow-checks = true
 lto = "fat"
 codegen-units = 1
-opt-level = "z" 
-
-strip = true   
-
+opt-level = "z"     # Optimize for size
+strip = true        # Strip symbols for smaller binary
 
 [profile.release.build-override]
 opt-level = 3
 
-# debugging
+# Development profile with better debugging
 [profile.dev]
 opt-level = 0
 debug = true
 
-# optimizations
+# Profile for testing with optimizations
 [profile.test]
 opt-level = 2
 
