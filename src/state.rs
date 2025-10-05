@@ -14,10 +14,12 @@ impl LockAccount {
 
     /// Unpack from slice
     pub fn unpack_from_slice(src: &[u8]) -> Result<Self, std::io::Error> {
+        // TODO: again the proc macro error
         Self::try_from_slice(src)
     }
 
-    /// Pack into slice
+    /// Pack into slice //
+    // TODO:  proc macros errors
     pub fn pack_into_slice(&self, dst: &mut [u8]) -> Result<(), std::io::Error> {
         let encoded = self.try_to_vec()?;
         dst[..encoded.len()].copy_from_slice(&encoded);
