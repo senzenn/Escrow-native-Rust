@@ -51,6 +51,7 @@ impl VaultInstruction {
                     lottery_id: payload.lottery_id,
                 }
             }
+            // added changes
             2 => {
                 let payload = CloseVaultPayload::try_from_slice(rest)
                     .map_err(|_| ProgramError::InvalidInstructionData)?;
