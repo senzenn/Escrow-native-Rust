@@ -1,25 +1,23 @@
-use std::ops::RangeBounds;
+use borsh::BorshSerialize;
+use solana_program::pubkey::Pubkey;
 
-use borsh::{BorshSerialize, BorshDeserialize};
-use solana_sdk::pubkey::Pubkey;
-
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
-pub struct LockAccount {
-    pub buyer: Pubkey, // 32 bytes
-    pub amount: u64,   // 8
+#[derive(BorshSerialize, borsh::BorshDeserialize, Debug, Clone)]
+pub struct EscrowAccount {
+    pub is_initialized: bool, // 1 byte
+    pub buyer: Pubkey,        // 32 bytes
+    pub seller: Pubkey,       // 32 bytes
+    pub amount: u64,          // 8 bytes
 }
 
-impl LockAccount {
-    pub const LEN: usize = 32 + 8; // 40 bytes total
+impl EscrowAccount {
+    pub const LEN: usize = 1 + 32 + 32 + 8; // 73 bytes total
 
     /// Unpack from slice
     pub fn unpack_from_slice(src: &[u8]) -> Result<Self, std::io::Error> {
-        // TODO: again the proc macro error
-        Self::try_from_slice(src)
+        borsh::BorshDeserialize::try_from_slice(src)
     }
 
-    /// Pack into slice //
-    // TODO:  proc macros errors
+    /// Pack into slice
     pub fn pack_into_slice(&self, dst: &mut [u8]) -> Result<(), std::io::Error> {
         let encoded = self.try_to_vec()?;
         dst[..encoded.len()].copy_from_slice(&encoded);

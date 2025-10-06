@@ -1,22 +1,32 @@
 use solana_program::program_error::ProgramError;
 use thiserror::Error;
 
-#[derive(Error, Copy, Clone)]
+#[derive(Error, Debug, Copy, Clone)]
 pub enum EscrowError {
     #[error("Invalid Instruction")]
     InvalidInstruction,
-    #[error("Notr rent exampt")]
+    #[error("Not rent exempt")]
     NotRentExempt,
-    #[error("Expected amount mismatch ")]
+    #[error("Expected amount mismatch")]
     ExpectedAmountMismatch,
-    #[error("Amount overflow ")]
-    AmountOverFlow,
+    #[error("Amount overflow")]
+    AmountOverflow,
     #[error("PDA Derivation mismatch")]
     PDADerivationMismatch,
-    #[error("InsufficientFunds")]
+    #[error("Insufficient funds")]
     InsufficientFunds,
     #[error("Account not owned by program")]
-    InvalildAccountOwner,
+    InvalidAccountOwner,
+    #[error("Invalid buyer")]
+    InvalidBuyer,
+    #[error("Invalid seller")]
+    InvalidSeller,
+    #[error("Escrow already initialized")]
+    AlreadyInitialized,
+    #[error("Escrow not initialized")]
+    NotInitialized,
+    #[error("Invalid milestone")]
+    InvalidMilestone,
 }
 
 // implementint the custom error for solana program

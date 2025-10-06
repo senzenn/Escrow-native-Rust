@@ -1356,8 +1356,7 @@ version = "0.1.0"
 dependencies = [
  "arrayref",
  "assert_matches",
- "borsh 1.5.7",
- "borsh-derive 1.5.7",
+ "borsh 0.10.4",
  "num-derive 0.4.2",
  "num-traits",
  "solana-program",

@@ -9,7 +9,7 @@ use solana_program::{
     system_instruction,
     sysvar::Sysvar,
 };
-use crate::{error::EscrowError, instruction::VaultInstruction, state::LockAccount};
+use crate::{error::EscrowError, instructions::EscrowInstruction, state::EscrowAccount};
 
 pub struct Processor;
 
@@ -19,34 +19,35 @@ impl Processor {
         accounts: &[AccountInfo],
         instruction_data: &[u8],
     ) -> ProgramResult {
-        let instruction = VaultInstruction::unpack(instruction_data)?;
+        let instruction = EscrowInstruction::unpack(instruction_data)?;
 
         match instruction {
-            VaultInstruction::SendSol { amount, lottery_id } => {
-                msg!("Instruction: SendSol");
-                Self::process_send_sol(program_id, accounts, amount, &lottery_id)
+            EscrowInstruction::InitializeEscrow { amount, escrow_id } => {
+                msg!("Instruction: InitializeEscrow");
+                Self::process_initialize_escrow(program_id, accounts, amount, &escrow_id)
             }
-            VaultInstruction::Cancel { lottery_id } => {
-                msg!("Instruction: Cancel");
-                Self::process_cancel(program_id, accounts, &lottery_id)
+            EscrowInstruction::ReleaseFunds { escrow_id } => {
+                msg!("Instruction: ReleaseFunds");
+                Self::process_release_funds(program_id, accounts, &escrow_id)
             }
-            VaultInstruction::CloseVault { lottery_id } => {
-                msg!("Instruction: CloseVault");
-                Self::process_close_vault(program_id, accounts, &lottery_id)
+            EscrowInstruction::CancelEscrow { escrow_id } => {
+                msg!("Instruction: CancelEscrow");
+                Self::process_cancel_escrow(program_id, accounts, &escrow_id)
             }
         }
     }
 
-    /// Process SendSol instruction
-    fn process_send_sol(
+    /// Process InitializeEscrow instruction
+    fn process_initialize_escrow(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         amount: u64,
-        lottery_id: &[u8],
+        escrow_id: &[u8],
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
         let buyer = next_account_info(account_info_iter)?;
-        let vault = next_account_info(account_info_iter)?;
+        let escrow = next_account_info(account_info_iter)?;
+        let seller = next_account_info(account_info_iter)?;
         let system_program = next_account_info(account_info_iter)?;
 
         // Verify buyer is signer
@@ -55,175 +56,191 @@ impl Processor {
         }
 
         // Derive PDA
-        let vault_seed = b"vault";
-        let seeds = &[vault_seed.as_ref(), buyer.key.as_ref(), lottery_id];
-        let (expected_vault_pda, bump_seed) = Pubkey::find_program_address(seeds, program_id);
+        let escrow_seed = b"escrow";
+        let seeds = &[escrow_seed.as_ref(), buyer.key.as_ref(), escrow_id];
+        let (expected_escrow_pda, bump_seed) = Pubkey::find_program_address(seeds, program_id);
 
-        // Verify vault PDA matches
-        if expected_vault_pda != *vault.key {
+        // Verify escrow PDA matches
+        if expected_escrow_pda != *escrow.key {
             msg!("Error: PDA mismatch");
             return Err(EscrowError::PDADerivationMismatch.into());
         }
 
-        // Create vault account if it doesn't exist
-        if vault.owner != program_id {
+        // Create escrow account if it doesn't exist
+        if escrow.owner != program_id {
             let rent = Rent::get()?;
-            let space = LockAccount::LEN;
+            let space = EscrowAccount::LEN;
             let rent_lamports = rent.minimum_balance(space);
 
-            msg!("Creating vault PDA...");
+            msg!("Creating escrow PDA...");
             let create_account_ix = system_instruction::create_account(
                 buyer.key,
-                vault.key,
+                escrow.key,
                 rent_lamports,
                 space as u64,
                 program_id,
             );
 
             let signer_seeds: &[&[u8]] = &[
-                vault_seed.as_ref(),
+                escrow_seed.as_ref(),
                 buyer.key.as_ref(),
-                lottery_id,
+                escrow_id,
                 &[bump_seed],
             ];
 
             invoke_signed(
                 &create_account_ix,
-                &[buyer.clone(), vault.clone(), system_program.clone()],
+                &[buyer.clone(), escrow.clone(), system_program.clone()],
                 &[signer_seeds],
             )?;
         }
 
-        // Transfer SOL from buyer to vault
-        msg!("Transferring {} lamports to vault", amount);
-        let transfer_ix = system_instruction::transfer(buyer.key, vault.key, amount);
+        // Transfer SOL from buyer to escrow
+        msg!("Transferring {} lamports to escrow", amount);
+        let transfer_ix = system_instruction::transfer(buyer.key, escrow.key, amount);
         invoke(
             &transfer_ix,
-            &[buyer.clone(), vault.clone(), system_program.clone()],
+            &[buyer.clone(), escrow.clone(), system_program.clone()],
         )?;
 
-        // Write lock account data
-        let lock_account = LockAccount {
+        // Write escrow account data
+        let escrow_account = EscrowAccount {
+            is_initialized: true,
             buyer: *buyer.key,
+            seller: *seller.key,
             amount,
         };
 
-        let mut vault_data = vault.try_borrow_mut_data()?;
-        lock_account.pack_into_slice(&mut vault_data)?;
+        let mut escrow_data = escrow.try_borrow_mut_data()?;
+        escrow_account.pack_into_slice(&mut escrow_data)?;
 
-        msg!("Vault created and funded successfully");
+        msg!("Escrow created and funded successfully");
         Ok(())
     }
 
-    /// Process Cancel instruction (refund buyer)
-    fn process_cancel(
+    /// Process ReleaseFunds instruction (send funds to seller)
+    fn process_release_funds(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
-        lottery_id: &[u8],
+        escrow_id: &[u8],
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
         let buyer = next_account_info(account_info_iter)?;
-        let vault = next_account_info(account_info_iter)?;
+        let escrow = next_account_info(account_info_iter)?;
+        let seller = next_account_info(account_info_iter)?;
 
         // Verify buyer is signer
         if !buyer.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
         }
 
-        // Verify vault is owned by program
-        if vault.owner != program_id {
+        // Verify escrow is owned by program
+        if escrow.owner != program_id {
             return Err(EscrowError::InvalidAccountOwner.into());
         }
 
         // Derive and verify PDA
-        let vault_seed = b"vault";
-        let seeds = &[vault_seed.as_ref(), buyer.key.as_ref(), lottery_id];
-        let (expected_vault_pda, _bump_seed) = Pubkey::find_program_address(seeds, program_id);
+        let escrow_seed = b"escrow";
+        let seeds = &[escrow_seed.as_ref(), buyer.key.as_ref(), escrow_id];
+        let (expected_escrow_pda, _bump_seed) = Pubkey::find_program_address(seeds, program_id);
 
-        if expected_vault_pda != *vault.key {
+        if expected_escrow_pda != *escrow.key {
             msg!("Error: PDA mismatch");
             return Err(EscrowError::PDADerivationMismatch.into());
         }
 
-        // Deserialize lock account
-        let vault_data = vault.try_borrow_data()?;
-        let lock_account = LockAccount::unpack_from_slice(&vault_data)?;
+        // Deserialize escrow account
+        let escrow_data = escrow.try_borrow_data()?;
+        let escrow_account = EscrowAccount::unpack_from_slice(&escrow_data)?;
+
+        // Verify escrow is initialized
+        if !escrow_account.is_initialized {
+            return Err(EscrowError::NotInitialized.into());
+        }
 
         // Verify buyer matches
-        if lock_account.buyer != *buyer.key {
+        if escrow_account.buyer != *buyer.key {
             return Err(EscrowError::InvalidBuyer.into());
         }
 
-        let refund_amount = lock_account.amount;
+        // Verify seller matches
+        if escrow_account.seller != *seller.key {
+            return Err(EscrowError::InvalidSeller.into());
+        }
 
-        // Check vault has enough lamports
-        if **vault.lamports.borrow() < refund_amount {
+        let release_amount = escrow_account.amount;
+
+        // Check escrow has enough lamports
+        if **escrow.lamports.borrow() < release_amount {
             return Err(EscrowError::InsufficientFunds.into());
         }
 
-        // Transfer lamports from vault back to buyer
-        msg!("Refunding {} lamports to buyer", refund_amount);
-        **vault.try_borrow_mut_lamports()? -= refund_amount;
-        **buyer.try_borrow_mut_lamports()? += refund_amount;
+        // Transfer lamports from escrow to seller
+        msg!("Releasing {} lamports to seller", release_amount);
+        **escrow.try_borrow_mut_lamports()? -= release_amount;
+        **seller.try_borrow_mut_lamports()? += release_amount;
 
-        msg!("Refund completed successfully");
+        msg!("Funds released to seller successfully");
         Ok(())
     }
 
-    /// Process CloseVault instruction (reclaim rent)
-    fn process_close_vault(
+    /// Process CancelEscrow instruction (refund buyer)
+    fn process_cancel_escrow(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
-        lottery_id: &[u8],
+        escrow_id: &[u8],
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
         let buyer = next_account_info(account_info_iter)?;
-        let vault = next_account_info(account_info_iter)?;
+        let escrow = next_account_info(account_info_iter)?;
 
         // Verify buyer is signer
         if !buyer.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
         }
 
-        // Verify vault is owned by program
-        if vault.owner != program_id {
+        // Verify escrow is owned by program
+        if escrow.owner != program_id {
             return Err(EscrowError::InvalidAccountOwner.into());
         }
 
         // Derive and verify PDA
-        let vault_seed = b"vault";
-        let seeds = &[vault_seed.as_ref(), buyer.key.as_ref(), lottery_id];
-        let (expected_vault_pda, _bump_seed) = Pubkey::find_program_address(seeds, program_id);
+        let escrow_seed = b"escrow";
+        let seeds = &[escrow_seed.as_ref(), buyer.key.as_ref(), escrow_id];
+        let (expected_escrow_pda, _bump_seed) = Pubkey::find_program_address(seeds, program_id);
 
-        if expected_vault_pda != *vault.key {
+        if expected_escrow_pda != *escrow.key {
             msg!("Error: PDA mismatch");
             return Err(EscrowError::PDADerivationMismatch.into());
         }
 
-        // Deserialize lock account
-        let vault_data = vault.try_borrow_data()?;
-        let lock_account = LockAccount::unpack_from_slice(&vault_data)?;
+        // Deserialize escrow account
+        let escrow_data = escrow.try_borrow_data()?;
+        let escrow_account = EscrowAccount::unpack_from_slice(&escrow_data)?;
+
+        // Verify escrow is initialized
+        if !escrow_account.is_initialized {
+            return Err(EscrowError::NotInitialized.into());
+        }
 
         // Verify buyer matches
-        if lock_account.buyer != *buyer.key {
+        if escrow_account.buyer != *buyer.key {
             return Err(EscrowError::InvalidBuyer.into());
         }
 
-        // Close account: transfer all lamports to buyer and zero data
-        let vault_lamports = vault.lamports();
-        msg!("Closing vault and reclaiming {} lamports", **vault_lamports);
+        let refund_amount = escrow_account.amount;
 
-        **vault.try_borrow_mut_lamports()? = 0;
-        **buyer.try_borrow_mut_lamports()? = buyer
-            .lamports()
-            .checked_add(**vault_lamports)
-            .ok_or(EscrowError::AmountOverflow)?;
+        // Check escrow has enough lamports
+        if **escrow.lamports.borrow() < refund_amount {
+            return Err(EscrowError::InsufficientFunds.into());
+        }
 
-        // Zero out data
-        let mut vault_data_mut = vault.try_borrow_mut_data()?;
-        vault_data_mut.fill(0);
+        // Transfer lamports from escrow back to buyer
+        msg!("Refunding {} lamports to buyer", refund_amount);
+        **escrow.try_borrow_mut_lamports()? -= refund_amount;
+        **buyer.try_borrow_mut_lamports()? += refund_amount;
 
-        msg!("Vault closed successfully");
+        msg!("Refund completed sf8>>>>>");
         Ok(())
     }
 }

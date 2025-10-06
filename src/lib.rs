@@ -8,4 +8,5 @@ pub mod error;
 
 pub use solana_program;
 
-solana_program::entrypoint!(entrypoint::process_instruction);
+use crate::entrypoint::process_instruction;
+solana_program::entrypoint!(process_instruction);

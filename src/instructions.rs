@@ -1,35 +1,39 @@
-use std::u8;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::program_error::ProgramError;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
-pub enum VaultInstruction {
-    // send sol to vault->
-    // expected inputs
-    // 0. [signer, writable ] :0-> buyer account
-    // 1. [writeable]  Vault pda
-    // 2. system program
-    SendSol {
+pub enum EscrowInstruction {
+    /// Initialize a new escrow
+    /// Accounts expected:
+    /// 0. [signer, writable] Buyer account
+    /// 1. [writable] Escrow PDA account
+    /// 2. [] Seller account
+    /// 3. [] System program
+    InitializeEscrow {
         amount: u64,
-        lottery_id: Vec<v8>,
+        escrow_id: Vec<u8>,
     },
 
-    /// 0. `[signer, writable]` Buyer account
-    /// 1. `[writable]` Vault PDA account
-    Cancel {
-        lottery_id: Vec<u8>,
+    /// Release funds to seller
+    /// Accounts expected:
+    /// 0. [signer, writable] Buyer account
+    /// 1. [writable] Escrow PDA account
+    /// 2. [writable] Seller account
+    ReleaseFunds {
+        escrow_id: Vec<u8>,
     },
 
-    //  0. `[signer, writable]` Buyer account
-    /// 1. `[writable]` Vault PDA account
-    CloseVault {
-        lottery_id: Vec<u8>,
+    /// Cancel escrow and refund buyer
+    /// Accounts expected:
+    /// 0. [signer, writable] Buyer account
+    /// 1. [writable] Escrow PDA account
+    CancelEscrow {
+        escrow_id: Vec<u8>,
     },
 }
 
-impl VaultInstruction {
-    /// unpck/pack to bytes
+impl EscrowInstruction {
+    /// Unpack instruction from bytes
     pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
         let (&variant, rest) = input
             .split_first()
@@ -37,26 +41,25 @@ impl VaultInstruction {
 
         Ok(match variant {
             0 => {
-                let payload = SendSolPayload::try_from_slice(rest)
+                let payload = InitializeEscrowPayload::try_from_slice(rest)
                     .map_err(|_| ProgramError::InvalidInstructionData)?;
-                Self::SendSol {
+                Self::InitializeEscrow {
                     amount: payload.amount,
-                    lottery_id: payload.lottery_id,
+                    escrow_id: payload.escrow_id,
                 }
             }
             1 => {
-                let payload = CancelPayload::try_from_slice(rest)
+                let payload = ReleaseFundsPayload::try_from_slice(rest)
                     .map_err(|_| ProgramError::InvalidInstructionData)?;
-                Self::Cancel {
-                    lottery_id: payload.lottery_id,
+                Self::ReleaseFunds {
+                    escrow_id: payload.escrow_id,
                 }
             }
-            // added changes
             2 => {
-                let payload = CloseVaultPayload::try_from_slice(rest)
+                let payload = CancelEscrowPayload::try_from_slice(rest)
                     .map_err(|_| ProgramError::InvalidInstructionData)?;
-                Self::CloseVault {
-                    lottery_id: payload.lottery_id,
+                Self::CancelEscrow {
+                    escrow_id: payload.escrow_id,
                 }
             }
             _ => return Err(ProgramError::InvalidInstructionData),
@@ -64,18 +67,19 @@ impl VaultInstruction {
     }
 }
 
-// helper functions for  deserialization
+// Helper structs for deserialization
+#[derive(BorshDeserialize, BorshSerialize)]
+struct InitializeEscrowPayload {
+    amount: u64,
+    escrow_id: Vec<u8>,
+}
 
 #[derive(BorshDeserialize, BorshSerialize)]
-struct SendSolPayload {
-    amount: u64,
-    lottery_id: Vec<u8>,
+struct ReleaseFundsPayload {
+    escrow_id: Vec<u8>,
 }
+
 #[derive(BorshDeserialize, BorshSerialize)]
-struct CancelPayload {
-    lottery_id: Vec<u8>,
-}
-#[derive(BorshDeserialize, BorshSerialize)]
-struct CloseVaultPayload {
-    lottery_id: Vec<u8>,
+struct CancelEscrowPayload {
+    escrow_id: Vec<u8>,
 }
